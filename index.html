@@ -138,6 +138,8 @@ main.locked{opacity:.6;pointer-events:none}
 .done-screen h2{position:relative;font:700 32px/1.05 var(--head);margin:8px 0 0}
 .done-screen p{position:relative;margin:0;color:var(--hero-mute);max-width:30ch}
 @keyframes fade{from{opacity:0}}
+/* a wide window (Telegram Desktop): the form keeps a phone-like column in the middle */
+@media (min-width:640px){.hero,.plan,main{max-width:560px;margin-left:auto;margin-right:auto}.hero{border-radius:0 0 22px 22px}.bar{max-width:560px;margin:0 auto}.done-screen p{max-width:36ch}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.tick path{stroke-dashoffset:0}}
 </style></head><body>
 <header class="hero">
@@ -248,7 +250,7 @@ function line(r, i) {
   rate.oninput = show; date.oninput = show;
   const head = el("button", {type: "button", className: "head", "aria-expanded": String(i === 0),
       onclick: () => { const open = card.classList.toggle("open"); head.setAttribute("aria-expanded", String(open)); }},
-    el("span", {className: "badge"}, el("span", {textContent: r.pr_item}), svg(ICON.tick, 18)),
+    el("span", {className: "badge"}, el("span", {textContent: String(i + 1)}), svg(ICON.tick, 18)),
     el("div", {}, el("h3", {textContent: r.text}), summary),
     el("span", {className: "caret"}, svg(ICON.caret, 20)));
   card.append(head, el("div", {className: "fold"}, el("div", {}, el("div", {className: "body"},
@@ -276,7 +278,7 @@ function refresh() {  // header figures, the meter and the POs SAP will get
   state.forEach((s, i) => { const a = s.get(); const v = Number(a.rate) > 0 ? Number(a.rate) * s.r.qty : 0; sum += v;
     const k = s.key(); if (!k) return;
     if (!groups.has(k)) groups.set(k, {name: s.name(), lines: [], value: 0});
-    const g = groups.get(k); g.lines.push(s.r.pr_item); g.value += v; });
+    const g = groups.get(k); g.lines.push(i + 1); g.value += v; });
   const ready = state.filter(s => s.ready()).length, n = groups.size;
   tween($("total"), sum);
   $("pocount").textContent = n + (n === 1 ? " PO" : " POs");
@@ -354,7 +356,7 @@ $("confirm").onclick = async () => {
   const miss = state.findIndex(s => !s.ready());
   if (miss >= 0) { const card = $("rows").querySelectorAll(".line")[miss];
     card.classList.add("open"); card.scrollIntoView({behavior: still ? "auto" : "smooth", block: "center"});
-    say("Line " + state[miss].r.pr_item + ": choose a supplier, give a rate and a date as DD.MM.YYYY.", "bad"); return; }
+    say("Line " + (miss + 1) + ": choose a supplier, give a rate and a date as DD.MM.YYYY.", "bad"); return; }
   $("confirm").disabled = true; say("Sending...", "wait");
   try { await call("/api/confirm", {id: formId, version, answers: answers.map(a => ({...a.supplier, rate: a.rate, date: a.date}))});
     clearTimeout(watching); say(""); approved(chipNodes.size); }
