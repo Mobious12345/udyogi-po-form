@@ -192,7 +192,7 @@ function tween(node, to) {  // the amount runs to its new value, so a change of 
     node.textContent = rs(from + (to - from) * e); if (k < 1) requestAnimationFrame(go); };
   requestAnimationFrame(go); }
 const validDate = v => /^\d\d\.\d\d\.\d{4}$/.test(v);
-let state = [];
+let state = [], version = 0, watching = 0;
 
 function line(r, i) {
   const first = r.suppliers.findIndex(o => o.name === r.suggested && o.sid !== "");
@@ -261,6 +261,12 @@ function line(r, i) {
       el("div", {style: "margin-top:8px"}, rate)),
     el("div", {className: "field"}, el("div", {className: "label"}, "Delivery date", el("small", {textContent: "DD.MM.YYYY"})), date),
     el("div", {className: "amount"}, el("span", {textContent: r.qty + " " + r.unit + " × rate"}), amount)))));
+  s.save = () => ({pick: supplier() && !s.found ? supplier().name : null, found: s.found, rate: rate.value, date: date.value});
+  s.restore = v => {  // the choice made before the lines were reloaded
+    if (v.found) { s.found = v.found; s.pick = ""; }
+    else if (v.pick === null) { s.found = null; s.pick = ""; }
+    else { const n = r.suppliers.findIndex(o => o.name === v.pick && o.sid !== ""); if (n >= 0) s.pick = String(n); }
+    select.value = s.pick; rate.value = v.rate; date.value = v.date; };
   s.show = show; return card; }
 
 let chipNodes = new Map();
@@ -300,22 +306,39 @@ function status(f) {
   if (f.status === "posting") { btn.disabled = true; pill.textContent = "Posting"; say("PO Automation makes the PO in SAP. This takes about 1 minute.", "wait"); setTimeout(poll, 4000); }
   else if (f.status === "posted") { btn.disabled = true; $("cta").textContent = "PO made"; btn.className = "done"; pill.textContent = "Done"; pill.className = "pill good";
     $("rows").classList.add("locked"); $("rows").inert = true; say(f.result, "good"); }
+  else if (f.status === "closed") { btn.disabled = true; $("cta").textContent = "Form closed"; pill.textContent = "Closed";
+    $("rows").classList.add("locked"); $("rows").inert = true; say(f.result, "good"); }
   else { btn.disabled = false; pill.textContent = "Waiting for you"; pill.className = "pill"; if (f.result) say(f.result, "bad"); } }
 
 async function poll() { try { status(await call("/api/form", {id: formId})); } catch (e) { setTimeout(poll, 6000); } }
 
+function render(f) {  // the lines of the form; the choices already made stay when a PR was added (FIFO join)
+  const kept = new Map(state.map(s => [s.r.pr + "/" + s.r.pr_item, s.save()]));
+  const known = new Set(state.map(s => s.r.pr)), fresh = f.prs.filter(p => state.length && !known.has(p));
+  state = []; chipNodes = new Map(); version = f.version;
+  $("title").textContent = f.rows.length > 1 ? "Purchase orders" : "Purchase order";
+  $("prs").replaceChildren(...f.prs.map(p => el("span", {textContent: "PR " + p})));
+  const cards = f.rows.map(line);
+  $("rows").replaceChildren(el("div", {className: "lines-title", textContent: "Lines"}), ...cards);
+  state.forEach(s => { const v = kept.get(s.r.pr + "/" + s.r.pr_item); if (v) s.restore(v); });
+  state.forEach(s => s.show());
+  $("plan").hidden = false; $("bar").hidden = false;
+  return fresh; }
+
+async function watchForm() {  // a PR added to this form while it is open shows at once (checked every 20 seconds)
+  clearTimeout(watching);
+  watching = setTimeout(async () => {
+    try { const f = await call("/api/form", {id: formId});
+      if (f.status !== "new" && f.status !== "sent") return;
+      if (f.version !== version) { const fresh = render(f); say("PR " + fresh.join(" + ") + " was added to this form. Check its lines, then confirm.", "good"); }
+    } catch (e) {}
+    watchForm(); }, 20000); }
+
 async function load() {
   if (!initData) { $("rows").replaceChildren(el("div", {className: "empty", textContent: "Open this form from the Udyogi PO bot in Telegram."}));
     $("state").textContent = "Closed"; $("linecount").textContent = ""; return; }
-  try {
-    const f = await call("/api/form", {id: formId});
-    $("title").textContent = f.rows.length > 1 ? "Purchase orders" : "Purchase order";
-    $("prs").replaceChildren(...f.prs.map(p => el("span", {textContent: "PR " + p})));
-    const cards = f.rows.map(line);
-    $("rows").replaceChildren(el("div", {className: "lines-title", textContent: "Lines"}), ...cards);
-    state.forEach(s => s.show());
-    $("plan").hidden = false; $("bar").hidden = false; status(f);
-  } catch (e) { $("rows").replaceChildren(el("div", {className: "empty", textContent: e.message})); } }
+  try { const f = await call("/api/form", {id: formId}); render(f); status(f); if (f.status === "new" || f.status === "sent") watchForm(); }
+  catch (e) { $("rows").replaceChildren(el("div", {className: "empty", textContent: e.message})); } }
 
 function approved(count) {
   const tick = svg(ICON.tick, 40); tick.style.color = "#fff";
@@ -333,9 +356,10 @@ $("confirm").onclick = async () => {
     card.classList.add("open"); card.scrollIntoView({behavior: still ? "auto" : "smooth", block: "center"});
     say("Line " + state[miss].r.pr_item + ": choose a supplier, give a rate and a date as DD.MM.YYYY.", "bad"); return; }
   $("confirm").disabled = true; say("Sending...", "wait");
-  try { await call("/api/confirm", {id: formId, answers: answers.map(a => ({...a.supplier, rate: a.rate, date: a.date}))});
-    say(""); approved(chipNodes.size); }
-  catch (e) { $("confirm").disabled = false; say(e.message, "bad"); } };
+  try { await call("/api/confirm", {id: formId, version, answers: answers.map(a => ({...a.supplier, rate: a.rate, date: a.date}))});
+    clearTimeout(watching); say(""); approved(chipNodes.size); }
+  catch (e) { $("confirm").disabled = false; say(e.message, "bad");
+    if (/New lines were added/.test(e.message)) { try { render(await call("/api/form", {id: formId})); } catch (x) {} } } };
 new ResizeObserver(() => { document.body.style.paddingBottom = ($("bar").offsetHeight + 24) + "px"; }).observe($("bar"));
 load();
 </script></body></html>
