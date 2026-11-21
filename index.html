@@ -81,6 +81,10 @@ main.locked{opacity:.6;pointer-events:none}
 .skel{height:180px;border-radius:var(--r);background:linear-gradient(90deg,var(--sheet) 30%,var(--field) 50%,var(--sheet) 70%) 0 0/300% 100%;animation:shim 1.2s ease-in-out infinite}
 @keyframes shim{to{background-position:-150% 0}}
 .empty{padding:28px 16px;text-align:center;color:var(--ink-2)}
+.done-screen{position:fixed;inset:0;z-index:10;background:var(--paper);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;animation:fade .25s ease-out both}
+.done-screen .tick{width:76px;height:76px;border-radius:50%;background:var(--good);display:grid;place-items:center;animation:pop .45s cubic-bezier(.16,1,.3,1) both}
+.done-screen h2{font:700 28px/1.1 var(--head);margin:4px 0 0}.done-screen p{margin:0;color:var(--ink-2);max-width:30ch}
+@keyframes fade{from{opacity:0}}@keyframes pop{from{transform:scale(.6);opacity:0}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style></head><body>
 <header class="top">
@@ -185,6 +189,15 @@ function status(f) {
   else if (f.status === "posted") { btn.disabled = true; btn.textContent = "PO made"; btn.className = "done"; $("rows").classList.add("locked"); $("rows").inert = true; pill.textContent = "Done"; pill.className = "pill good"; say(f.result, "good"); }
   else { btn.disabled = false; pill.textContent = "Waiting for you"; pill.className = "pill"; if (f.result) say(f.result, "bad"); } }
 
+function approved() {
+  const tick = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  tick.setAttribute("width", "38"); tick.setAttribute("height", "38"); tick.setAttribute("viewBox", "0 0 24 24");
+  tick.innerHTML = '<path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>';
+  document.body.append(el("div", {className: "done-screen", role: "status"}, el("div", {className: "tick"}, tick),
+    el("h2", {textContent: "Confirmed"}), el("p", {textContent: "PO approved. The PO and its PDF come in Telegram in about 1 minute."})));
+  if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+  if (tg) setTimeout(() => tg.close(), 2500); else status({status: "posting"}); }
+
 async function poll() { try { status(await call("/api/form", {id: formId})); } catch (e) { setTimeout(poll, 6000); } }
 
 async function load() {
@@ -204,7 +217,7 @@ $("confirm").onclick = async () => {
   $("confirm").disabled = true; say("Sending...", "wait");
   if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
   try { await call("/api/confirm", {id: formId, answers: answers.map(a => ({...a.supplier, rate: a.rate, date: a.date}))});
-    status({status: "posting"}); }
+    approved(); }
   catch (e) { $("confirm").disabled = false; say(e.message, "bad"); } };
 new ResizeObserver(() => { document.body.style.paddingBottom = ($("bar").offsetHeight + 24) + "px"; }).observe($("bar"));
 load();
