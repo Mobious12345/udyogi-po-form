@@ -126,25 +126,28 @@ function say(text, kind) { const m = $("msg"); m.hidden = !text; m.className = "
 let state = [];
 
 function line(r, i) {
-  const s = state[i] = {r, pick: r.suggested, found: null};
+  const first = r.suppliers.findIndex(o => o.name === r.suggested && o.sid !== "");
+  const start = first >= 0 ? String(first) : "";
+  const s = state[i] = {r, pick: start, found: null};
   const select = el("select", {"aria-label": "Supplier of line " + (i + 1)});
-  r.suppliers.forEach(o => select.append(el("option", {value: o.key, textContent: o.name})));
+  r.suppliers.forEach((o, n) => select.append(el("option", {value: String(n), disabled: o.sid === "",
+    textContent: o.name + (o.sid === "" ? " (not in SAP TEST)" : "")})));
   select.append(el("option", {value: "", textContent: r.suppliers.length ? "Another supplier (search below)" : "No old supplier: search below"}));
-  select.value = r.suggested;
+  select.value = s.pick;
   const search = el("input", {type: "search", placeholder: "Search another supplier", autocomplete: "off", enterKeyHint: "search"});
   const results = el("div", {className: "results", role: "listbox"}), chosen = el("div"), rates = el("div");
   const rate = el("input", {inputMode: "decimal", placeholder: "Type another rate (optional)", "aria-label": "Another rate"});
   const date = el("input", {value: r.date, placeholder: "DD.MM.YYYY", inputMode: "numeric", "aria-label": "Delivery date"});
   const amount = el("b"), poCount = el("small");
-  const supplier = () => r.suppliers.find(o => o.key === s.pick);
+  const supplier = () => s.pick === "" ? null : r.suppliers[Number(s.pick)];
   s.get = () => { const o = supplier(), typed = rate.value.replace(/,/g, "").trim();
-    return {supplier: s.found ? {sid: s.found.sid} : (o ? {name: o.key} : null),
+    return {supplier: s.found ? {sid: s.found.sid} : (o ? (o.sid ? {sid: o.sid} : {name: o.key}) : null),
             rate: typed || (o && !s.found ? String(o.rate) : ""), date: date.value.trim()}; };
   function show() {
     const o = supplier();
     poCount.textContent = o && !s.found ? o.pos + " old POs" : s.found ? "new for this item" : "";
     chosen.replaceChildren(...(s.found ? [el("div", {className: "chosen"}, el("span", {textContent: s.found.name + " · " + s.found.sid}),
-      el("button", {type: "button", textContent: "Change", onclick: () => { s.found = null; s.pick = r.suggested; select.value = r.suggested; show(); }}))] : []));
+      el("button", {type: "button", textContent: "Change", onclick: () => { s.found = null; s.pick = start; select.value = start; show(); }}))] : []));
     const list = o ? (o.last && o.last.length ? o.last : [{rate: o.rate}]) : [];
     rates.replaceChildren(...(list.length ? [el("div", {className: "rates"}, list.map((x, n) =>
         el("div", {className: "rate" + (n ? "" : " now")}, el("b", {textContent: rs(x.rate)}),
